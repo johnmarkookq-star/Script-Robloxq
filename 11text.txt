@@ -27,6 +27,228 @@ local System = {Running = true, Auto = false, ESP = true}
 local connections = {}
 local highlights = {}
 local labels = {}
+local altarQueue = {} -- NEW: Queue to track which altars to visit
+local queueIndex = 1   -- NEW: Tracks current position in the list
+
+local currentTween
+local currentTarget
+
+--// NOTIFY
+local function notify(text)
+	pcall(function()
+		StarterGui:SetCore("SendNotification",{
+			Title="JOHN MARK GWAPO",
+			Text=text,
+			Duration=3
+		})
+	end)
+end
+
+--// HELP UI (News Ticker)
+local function showHelpUI()
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "NewsTickerUI"
+    sg.IgnoreGuiInset = true
+    sg.Parent = player:WaitForChild("PlayerGui")
+
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(1, 0, 0, 40)
+    bar.Position = UDim2.new(0, 0, 0.45, 0)
+    bar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    bar.BackgroundTransparency = 1 
+    bar.ClipsDescendants = true 
+    bar.Parent = sg
+
+    local label = Instance.new("TextLabel")
+    local helpString = "       >>> [ JOHN MARK GWAPO ]:    " .. CMD_AUTO .. " (AUTO)    |    " .. CMD_ESP .. " (ESP)    |    " .. CMD_NEXT .. " (CYCLE LIST)    |    " .. CMD_TS .. " [NUM]    |    " .. CMD_BYE .. " (EXIT)    <<<       "
+    label.Text = helpString
+    label.Size = UDim2.new(0, 4000, 1, 0)
+    label.Position = UDim2.new(1, 0, 0, 0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Font = Enum.Font.Code
+    label.TextSize = 22
+    label.Parent = bar
+
+    local textTween = TweenService:Create(label, TweenInfo.new(20, Enum.EasingStyle.Linear), {Position = UDim2.new(0, -3000, 0, 0)})
+    TweenService:Create(bar, TweenInfo.new(0.5), {BackgroundTransparency = 0.4}):Play()
+    textTween:Play()
+    textTween.Completed:Connect(function()
+        local fadeOut = TweenService:Create(bar, TweenInfo.new(0.5), {BackgroundTransparency = 1})
+        fadeOut:Play()
+        fadeOut.Completed:Connect(function() sg:Destroy() end)
+    end)
+end
+
+--// REFRESH QUEUE (Fixed Logic)
+local function refreshQueue()
+    local altars = {}
+    if workspace:FindFirstChild("Altars") then
+        for _, altar in pairs(workspace.Altars:GetChildren()) do
+            local aura = altar:FindFirstChild("AuraExplode", true)
+            if aura then table.insert(altars, aura) end
+        end
+    end
+
+    -- Shuffle the list randomly
+    for i = #altars, 2, -1 do
+        local j = math.random(i)
+        altars[i], altars[j] = altars[j], altars[i]
+    end
+
+    altarQueue = altars
+    queueIndex = 1
+end
+
+--// TWEEN & COLLECT
+local function flyTo(aura)
+	if not root or not aura then return end
+	if currentTween then currentTween:Cancel() end
+	currentTarget = aura
+	currentTween = TweenService:Create(root, TweenInfo.new(TweenSpeed, Enum.EasingStyle.Linear), {CFrame = aura.CFrame})
+	currentTween:Play()
+end
+
+local function collectAltar(altar)
+	local p = altar.Parent:FindFirstChild("AltarModel", true):FindFirstChild("Altar", true):FindFirstChild("AltarPage", true):FindFirstChild("CollectPrompt", true)
+	if p then fireproximityprompt(p) end
+end
+
+--// AUTO FARM (Cycle Logic)
+task.spawn(function()
+	while System.Running do
+		task.wait(.2)
+		if System.Auto and root then
+			if #altarQueue == 0 or queueIndex > #altarQueue then
+				refreshQueue()
+			end
+
+			if not currentTarget and #altarQueue > 0 then
+				flyTo(altarQueue[queueIndex])
+			end
+
+			if currentTarget then
+				if (root.Position - currentTarget.Position).Magnitude <= 5 then
+					collectAltar(currentTarget)
+					task.wait(1)
+					currentTarget = nil
+					queueIndex = queueIndex + 1 -- Move to the next one in the list
+				end
+			end
+		end
+	end
+end)
+
+--// ESP & DISTANCE (Keeping your existing logic)
+local function getAltars()
+	local list = {}
+	if workspace:FindFirstChild("Altars") then
+		for _,altar in pairs(workspace.Altars:GetChildren()) do
+			local aura = altar:FindFirstChild("AuraExplode",true)
+			if aura then table.insert(list,aura) end
+		end
+	end
+	return list
+end
+
+local function clearESP()
+	for _,v in pairs(highlights) do if v then v:Destroy() end end
+	for _,v in pairs(labels) do if v then v:Destroy() end end
+	highlights = {}
+	labels = {}
+end
+
+local function createESP(altar,aura)
+	if highlights[altar] or not System.ESP then return end
+	local highlight = Instance.new("Highlight", altar)
+	highlight.FillColor = Color3.fromRGB(255,0,0)
+	highlight.OutlineColor = Color3.fromRGB(255,255,0)
+	highlight.FillTransparency = 0.4
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlights[altar] = highlight
+
+	local gui = Instance.new("BillboardGui", aura)
+	gui.Adornee = aura
+	gui.Size = UDim2.new(0,120,0,50)
+	gui.StudsOffset = Vector3.new(0,3,0)
+	gui.AlwaysOnTop = true
+	local title = Instance.new("TextLabel", gui)
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.new(1,0,0.5,0)
+	title.TextScaled = true
+	title.Font = Enum.Font.SourceSansBold
+	title.TextColor3 = Color3.fromRGB(255,0,0)
+	title.Text = "ALTAR OH KWAA"
+	local dist = Instance.new("TextLabel", gui)
+	dist.BackgroundTransparency = 1
+	dist.Position = UDim2.new(0,0,0.5,0)
+	dist.Size = UDim2.new(1,0,0.5,0)
+	dist.TextScaled = true
+	dist.TextColor3 = Color3.fromRGB(255,255,255)
+	dist.Text = "0m"
+	labels[altar] = gui
+end
+
+task.spawn(function()
+	while System.Running do
+		task.wait(1)
+		if System.ESP then
+			for _,aura in pairs(getAltars()) do createESP(aura.Parent,aura) end
+		end
+	end
+end)
+
+table.insert(connections, RunService.RenderStepped:Connect(function()
+	if not System.ESP or not root then return end
+	for altar,gui in pairs(labels) do
+		local aura = altar:FindFirstChild("AuraExplode")
+		if aura then
+			local distance = (root.Position - aura.Position).Magnitude
+			for _,v in pairs(gui:GetChildren()) do
+				if v:IsA("TextLabel") and v.Text ~= "ALTAR OH KWAA" then v.Text = math.floor(distance).."m" end
+			end
+		end
+	end
+end))
+
+--// DESTROY
+function System:Destroy()
+	notify("SYSTEM DESTROYED - BYE!")
+	System.Running = false
+	System.Auto = false
+	System.ESP = false
+	if currentTween then currentTween:Cancel() end
+	clearESP()
+	for _,c in pairs(connections) do if c then c:Disconnect() end end
+end
+
+--// CHAT COMMANDS
+table.insert(connections, player.Chatted:Connect(function(msg)
+	msg = msg:lower()
+	if msg == CMD_HELP then
+		task.spawn(showHelpUI)
+	elseif msg == CMD_NEXT then
+        -- Force move to next in queue
+		if #altarQueue == 0 or queueIndex > #altarQueue then refreshQueue() end
+		flyTo(altarQueue[queueIndex])
+		queueIndex = queueIndex + 1
+	elseif msg == CMD_AUTO then
+		System.Auto = not System.Auto
+		currentTarget = nil
+		notify(System.Auto and "AUTO FARM ON" or "AUTO FARM OFF")
+	elseif msg == CMD_ESP then
+		System.ESP = not System.ESP
+		if System.ESP then notify("ESP ON") else clearESP() notify("ESP OFF") end
+	elseif msg:sub(1,3) == CMD_TS then
+		local num = tonumber(msg:sub(5))
+		if num then TweenSpeed = num notify("SPEED: "..num) end
+	elseif msg == CMD_BYE then
+		System:Destroy()
+	end
+end))
+
+notify("WELCOME GWAPO")local labels = {}
 
 local currentTween
 local currentTarget
